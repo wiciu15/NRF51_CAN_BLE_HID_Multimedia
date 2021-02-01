@@ -1,0 +1,3 @@
+c:\NRFdev\openocd-0.10.0\bin\openocd.exe -f interface/stlink-v2.cfg -f target/nrf51.cfg -c "init" -c "halt" -c "nrf51 mass_erase" -c "program C:/NRFdev/NRFSDK12/components/softdevice/s130/hex/s130_nrf51_2.0.1_softdevice.hex verify reset; shutdown;"
+c:\NRFdev\openocd-0.10.0\bin\openocd.exe -f interface/stlink-v2.cfg -f target/nrf51.cfg -c "init" -c "halt" -c "program C:/NRFdev/projekty/ble_mediaKB/Debug/ble_mediaKB.hex verify reset; shutdown;" -c "exit" 
+PAUSE
