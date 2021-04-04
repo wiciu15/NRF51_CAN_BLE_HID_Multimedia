@@ -77,6 +77,12 @@
 #include "fds.h"
 #include "fstorage.h"
 #include "ble_conn_state.h"
+#include "nrf_drv_gpiote.h"
+
+#include "can.h"
+#include "mcp2515.h"
+#include "hid_mmkeys.h"
+
 
 #define NRF_LOG_MODULE_NAME "APP"
 #include "nrf_log.h"
@@ -92,21 +98,14 @@
 #define UART_TX_BUF_SIZE                 256                                        /**< UART TX buffer size. */
 #define UART_RX_BUF_SIZE                 1                                          /**< UART RX buffer size. */
 
-#define KEY_PRESS_BUTTON_ID              0                                          /**< Button used as Keyboard key press. */
-#define SHIFT_BUTTON_ID                  1                                          /**< Button used as 'SHIFT' Key. */
-
-#define DEVICE_NAME                      "chujow sto"                          /**< Name of device. Will be included in the advertising data. */
+#define DEVICE_NAME                      "Volt-multimedia"                          /**< Name of device. Will be included in the advertising data. */
 #define MANUFACTURER_NAME                "NordicSemiconductor"                      /**< Manufacturer. Will be passed to Device Information Service. */
 
 #define APP_TIMER_PRESCALER              0                                          /**< Value of the RTC1 PRESCALER register. */
 #define APP_TIMER_OP_QUEUE_SIZE          4                                          /**< Size of timer operation queues. */
 
 #define BATTERY_LEVEL_MEAS_INTERVAL      APP_TIMER_TICKS(2000, APP_TIMER_PRESCALER) /**< Battery level measurement interval (ticks). */
-#define KEY_SENDING_INTERVAL			 APP_TIMER_TICKS(5000, APP_TIMER_PRESCALER)
 #define KEY_RELEASE_REPORT_INTERVAL		 APP_TIMER_TICKS(30,APP_TIMER_PRESCALER)
-#define MIN_BATTERY_LEVEL                81                                         /**< Minimum simulated battery level. */
-#define MAX_BATTERY_LEVEL                100                                        /**< Maximum simulated battery level. */
-#define BATTERY_LEVEL_INCREMENT          1                                          /**< Increment between each simulated battery level measurement. */
 
 #define PNP_ID_VENDOR_ID_SOURCE          0x02                                       /**< Vendor ID Source. */
 #define PNP_ID_VENDOR_ID                 0x1915                                     /**< Vendor ID. */
@@ -116,7 +115,7 @@
 #define APP_ADV_FAST_INTERVAL            0x0028                                     /**< Fast advertising interval (in units of 0.625 ms. This value corresponds to 25 ms.). */
 #define APP_ADV_SLOW_INTERVAL            0x0C80                                     /**< Slow advertising interval (in units of 0.625 ms. This value corrsponds to 2 seconds). */
 #define APP_ADV_FAST_TIMEOUT             30                                         /**< The duration of the fast advertising period (in seconds). */
-#define APP_ADV_SLOW_TIMEOUT             180                                        /**< The duration of the slow advertising period (in seconds). */
+#define APP_ADV_SLOW_TIMEOUT             0                                          /**< The duration of the slow advertising period (in seconds). */
 
 /*lint -emacro(524, MIN_CONN_INTERVAL) // Loss of precision */
 #define MIN_CONN_INTERVAL                MSEC_TO_UNITS(7.5, UNIT_1_25_MS)            /**< Minimum connection interval (7.5 ms) */
@@ -137,12 +136,8 @@
 #define SEC_PARAM_MIN_KEY_SIZE           7                                           /**< Minimum encryption key size. */
 #define SEC_PARAM_MAX_KEY_SIZE           16                                          /**< Maximum encryption key size. */
 
-#define OUTPUT_REPORT_INDEX              0                                           /**< Index of Output Report. */
-#define OUTPUT_REPORT_MAX_LEN            1                                           /**< Maximum length of Output Report. */
 #define INPUT_REPORT_KEYS_INDEX          0                                           /**< Index of Input Report. */
-#define OUTPUT_REPORT_BIT_MASK_CAPS_LOCK 0x02                                        /**< CAPS LOCK bit in Output Report (based on 'LED Page (0x08)' of the Universal Serial Bus HID Usage Tables). */
 #define INPUT_REP_REF_ID                 0                                           /**< Id of reference to Keyboard Input Report. */
-#define OUTPUT_REP_REF_ID                0                                           /**< Id of reference to Keyboard Output Report. */
 
 #define APP_FEATURE_NOT_SUPPORTED        BLE_GATT_STATUS_ATTERR_APP_BEGIN + 2        /**< Reply when unsupported features are requested. */
 
@@ -162,44 +157,10 @@
 #define SCHED_QUEUE_SIZE                 10                                          /**< Maximum number of events in the scheduler queue. */
 #endif
 
-#define MODIFIER_KEY_POS                 0                                           /**< Position of the modifier byte in the Input Report. */
-#define SCAN_CODE_POS                    2                                           /**< This macro indicates the start position of the key scan code in a HID Report. As per the document titled 'Device Class Definition for Human Interface Devices (HID) V1.11, each report shall have one modifier byte followed by a reserved constant byte and then the key scan code. */
-#define SHIFT_KEY_CODE                   0x02                                        /**< Key code indicating the press of the Shift Key. */
-
-#define MAX_KEYS_IN_ONE_REPORT           (INPUT_REPORT_KEYS_MAX_LEN - SCAN_CODE_POS) /**< Maximum number of key presses that can be sent in one Input Report. */
-
 #define NRF_CLOCK_LFCLKSRC      {.source        = NRF_CLOCK_LF_SRC_XTAL,            \
                                  .rc_ctiv       = 0,                                \
                                  .rc_temp_ctiv  = 0,                                \
                                  .xtal_accuracy = NRF_CLOCK_LF_XTAL_ACCURACY_20_PPM}
-
-/**Buffer queue access macros
- *
- * @{ */
-/** Initialization of buffer list */
-#define BUFFER_LIST_INIT()     \
-    do                         \
-    {                          \
-        buffer_list.rp    = 0; \
-        buffer_list.wp    = 0; \
-        buffer_list.count = 0; \
-    } while (0)
-
-/** Provide status of data list is full or not */
-#define BUFFER_LIST_FULL() \
-    ((MAX_BUFFER_ENTRIES == buffer_list.count - 1) ? true : false)
-
-/** Provides status of buffer list is empty or not */
-#define BUFFER_LIST_EMPTY() \
-    ((0 == buffer_list.count) ? true : false)
-
-#define BUFFER_ELEMENT_INIT(i)                 \
-    do                                         \
-    {                                          \
-        buffer_list.buffer[(i)].p_data = NULL; \
-    } while (0)
-
-/** @} */
 
 typedef enum
 {
@@ -211,40 +172,17 @@ typedef enum
     BLE_SLEEP,              /**< Go to system-off. */
 } ble_advertising_mode_t;
 
-/** Abstracts buffer element */
-typedef struct hid_key_buffer
-{
-    uint8_t      data_offset; /**< Max Data that can be buffered for all entries */
-    uint8_t      data_len;    /**< Total length of data */
-    uint8_t    * p_data;      /**< Scanned key pattern */
-    ble_hids_t * p_instance;  /**< Identifies peer and service instance */
-} buffer_entry_t;
-
-STATIC_ASSERT(sizeof(buffer_entry_t) % 4 == 0);
-
-/** Circular buffer list */
-typedef struct
-{
-    buffer_entry_t buffer[MAX_BUFFER_ENTRIES]; /**< Maximum number of entries that can enqueued in the list */
-    uint8_t        rp;                         /**< Index to the read location */
-    uint8_t        wp;                         /**< Index to write location */
-    uint8_t        count;                      /**< Number of elements in the list */
-} buffer_list_t;
-
-STATIC_ASSERT(sizeof(buffer_list_t) % 4 == 0);
-
 static ble_hids_t m_hids;                                   /**< Structure used to identify the HID service. */
 static ble_bas_t  m_bas;                                    /**< Structure used to identify the battery service. */
 static bool       m_in_boot_mode = false;                   /**< Current protocol mode. */
 static uint16_t   m_conn_handle  = BLE_CONN_HANDLE_INVALID; /**< Handle of the current connection. */
 
+struct can_frame received_can_frame;						/** buffer to store received can frame*/
 
 APP_TIMER_DEF(m_battery_timer_id);                          /**< Battery timer. */
-APP_TIMER_DEF(m_key_interval_id);
 APP_TIMER_DEF(m_key_release_interval_id);
 
 static pm_peer_id_t m_peer_id;                              /**< Device reference handle to the current bonded central. */
-static bool         m_caps_on = false;                      /**< Variable to indicate if Caps Lock is turned on. */
 
 static pm_peer_id_t   m_whitelist_peers[BLE_GAP_WHITELIST_ADDR_MAX_COUNT];  /**< List of peers currently in the whitelist. */
 static uint32_t       m_whitelist_peer_cnt;                                 /**< Number of peers currently in the whitelist. */
@@ -253,7 +191,7 @@ static bool           m_is_wl_changed;                                      /**<
 static ble_uuid_t m_adv_uuids[] = {{BLE_UUID_HUMAN_INTERFACE_DEVICE_SERVICE, BLE_UUID_TYPE_BLE}};
 
 /** List to enqueue not just data to be sent, but also related information like the handle, connection handle etc */
-static buffer_list_t buffer_list;
+
 
 static void on_hids_evt(ble_hids_t * p_hids, ble_hids_evt_t * p_evt);
 
@@ -504,18 +442,20 @@ static void battery_level_meas_timeout_handler(void * p_context)
     battery_level_update();
 }
 
-
-static void key_send_timer_timeout_handler(void * p_context)
-{
-    UNUSED_PARAMETER(p_context);
-    uint8_t report[3]={0x01,0,0}; //hid report with no keys pressed
-    report[1] |= 1<<6; //media next
-    uint32_t err_code = ble_hids_inp_rep_send(&m_hids,
-                                                 INPUT_REPORT_KEYS_INDEX,
-                                                 INPUT_REPORT_KEYS_MAX_LEN,
-                                                 report);
-    app_timer_start(m_key_release_interval_id,KEY_RELEASE_REPORT_INTERVAL,NULL);
+/**@brief Function for sending a report with given multimedia key pressed
+ *
+ * @details Function sends HID report with appropriate key pressed and triggers one-shot timer which sends an empty report (all key release) after few ms
+ */
+static void hid_multimedia_send_key(uint8_t key){
+	uint8_t report[3]={0x01,0,0}; //empty hid report with no keys pressed
+	    report[1] |= 1<<key;
+	    uint32_t err_code = ble_hids_inp_rep_send(&m_hids,
+	                                                 INPUT_REPORT_KEYS_INDEX,
+	                                                 INPUT_REPORT_KEYS_MAX_LEN,
+	                                                 report);
+	    app_timer_start(m_key_release_interval_id,KEY_RELEASE_REPORT_INTERVAL,NULL); //send empty report after a delay to simulate key release
 }
+
 
 static void key_release_timer_timeout_handler(void * p_context){
 	UNUSED_PARAMETER(p_context);
@@ -541,14 +481,45 @@ static void timers_init(void)
     err_code = app_timer_create(&m_battery_timer_id,
                                 APP_TIMER_MODE_REPEATED,
                                 battery_level_meas_timeout_handler);
-    err_code = app_timer_create(&m_key_interval_id,APP_TIMER_MODE_REPEATED,key_send_timer_timeout_handler);
     err_code = app_timer_create(&m_key_release_interval_id,APP_TIMER_MODE_SINGLE_SHOT,key_release_timer_timeout_handler);
     APP_ERROR_CHECK(err_code);
 
 
 }
 
+/**@brief Handler for MCP2515 INT pin external interrupt
+ *
+ * @details This function reads can frame from MCP2515 RX buffer and triggers appropriate action based on can frame data
+ */
+static void mcp2515_int_pin_handler(nrf_drv_gpiote_pin_t pin, nrf_gpiote_polarity_t action){
+	mcp2515_rx(&received_can_frame);
+	NRF_LOG_INFO("CAN RX id%X data0x%X \r\n",received_can_frame.can_id,(received_can_frame.data[0]))
+	if(received_can_frame.data[0]==CAN_MEDIA_NEXT){
+		hid_multimedia_send_key(MEDIA_NEXT);
+	}
+	if(received_can_frame.data[0]==CAN_MEDIA_PREV){
+		hid_multimedia_send_key(MEDIA_PREV);
+	}
+}
 
+/**@brief Function for GPIOTE and interrupt pins configuration.
+ *
+ * @details This function sets up GPIOTE peripheral and configures interrupt pin for use with MCP2515
+ */
+static void gpiote_init(void){
+	ret_code_t err_code;
+
+	err_code = nrf_drv_gpiote_init();
+	APP_ERROR_CHECK(err_code);
+
+	nrf_drv_gpiote_in_config_t mcp2515_int_pin_config = GPIOTE_CONFIG_IN_SENSE_HITOLO(true);
+	mcp2515_int_pin_config.pull = NRF_GPIO_PIN_PULLUP;
+
+	err_code = nrf_drv_gpiote_in_init(MCP2515_INT_PIN, &mcp2515_int_pin_config, mcp2515_int_pin_handler);
+	APP_ERROR_CHECK(err_code);
+
+	nrf_drv_gpiote_in_event_enable(MCP2515_INT_PIN, true);
+}
 /**@brief Function for the GAP initialization.
  *
  * @details This function sets up all the necessary GAP (Generic Access Profile) parameters of the
@@ -688,11 +659,6 @@ static void hids_init(void)
     BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&p_input_report->security_mode.read_perm);
     BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&p_input_report->security_mode.write_perm);
 
-    p_output_report                      = &output_report_array[OUTPUT_REPORT_INDEX];
-    p_output_report->max_len             = OUTPUT_REPORT_MAX_LEN;
-    p_output_report->rep_ref.report_id   = OUTPUT_REP_REF_ID;
-    p_output_report->rep_ref.report_type = BLE_HIDS_REP_TYPE_OUTPUT;
-
     BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&p_output_report->security_mode.read_perm);
     BLE_GAP_CONN_SEC_MODE_SET_ENC_NO_MITM(&p_output_report->security_mode.write_perm);
 
@@ -795,268 +761,6 @@ static void timers_start(void)
     APP_ERROR_CHECK(err_code);
 }
 
-
-/**@brief   Function for transmitting a key scan Press & Release Notification.
- *
- * @warning This handler is an example only. You need to analyze how you wish to send the key
- *          release.
- *
- * @param[in]  p_instance     Identifies the service for which Key Notifications are requested.
- * @param[in]  p_key_pattern  Pointer to key pattern.
- * @param[in]  pattern_len    Length of key pattern. 0 < pattern_len < 7.
- * @param[in]  pattern_offset Offset applied to Key Pattern for transmission.
- * @param[out] actual_len     Provides actual length of Key Pattern transmitted, making buffering of
- *                            rest possible if needed.
- * @return     NRF_SUCCESS on success, BLE_ERROR_NO_TX_PACKETS in case transmission could not be
- *             completed due to lack of transmission buffer or other error codes indicating reason
- *             for failure.
- *
- * @note       In case of BLE_ERROR_NO_TX_PACKETS, remaining pattern that could not be transmitted
- *             can be enqueued \ref buffer_enqueue function.
- *             In case a pattern of 'cofFEe' is the p_key_pattern, with pattern_len as 6 and
- *             pattern_offset as 0, the notifications as observed on the peer side would be
- *             1>    'c', 'o', 'f', 'F', 'E', 'e'
- *             2>    -  , 'o', 'f', 'F', 'E', 'e'
- *             3>    -  ,   -, 'f', 'F', 'E', 'e'
- *             4>    -  ,   -,   -, 'F', 'E', 'e'
- *             5>    -  ,   -,   -,   -, 'E', 'e'
- *             6>    -  ,   -,   -,   -,   -, 'e'
- *             7>    -  ,   -,   -,   -,   -,  -
- *             Here, '-' refers to release, 'c' refers to the key character being transmitted.
- *             Therefore 7 notifications will be sent.
- *             In case an offset of 4 was provided, the pattern notifications sent will be from 5-7
- *             will be transmitted.
- */
-static uint32_t send_key_scan_press_release(ble_hids_t * p_hids,
-                                            uint8_t    * p_key_pattern,
-                                            uint16_t     pattern_len,
-                                            uint16_t     pattern_offset,
-                                            uint16_t   * p_actual_len)
-{
-    uint32_t err_code;
-    uint16_t offset;
-    uint16_t data_len;
-    uint8_t  data[INPUT_REPORT_KEYS_MAX_LEN];
-
-    // HID Report Descriptor enumerates an array of size 6, the pattern hence shall not be any
-    // longer than this.
-    STATIC_ASSERT((INPUT_REPORT_KEYS_MAX_LEN - 2) == 6);
-
-    ASSERT(pattern_len <= (INPUT_REPORT_KEYS_MAX_LEN - 2));
-
-    offset   = pattern_offset;
-    data_len = pattern_len;
-
-    do
-    {
-        // Reset the data buffer.
-        memset(data, 0, sizeof(data));
-
-        // Copy the scan code.
-        memcpy(data + SCAN_CODE_POS + offset, p_key_pattern + offset, data_len - offset);
-
-
-        if (!m_in_boot_mode)
-        {
-            err_code = ble_hids_inp_rep_send(p_hids,
-                                             INPUT_REPORT_KEYS_INDEX,
-                                             INPUT_REPORT_KEYS_MAX_LEN,
-                                             data);
-        }
-        else
-        {
-            err_code = ble_hids_boot_kb_inp_rep_send(p_hids,
-                                                     INPUT_REPORT_KEYS_MAX_LEN,
-                                                     data);
-        }
-
-        if (err_code != NRF_SUCCESS)
-        {
-            break;
-        }
-
-        offset++;
-    }
-    while (offset <= data_len);
-
-    *p_actual_len = offset;
-
-    return err_code;
-}
-
-
-/**@brief   Function for initializing the buffer queue used to key events that could not be
- *          transmitted
- *
- * @warning This handler is an example only. You need to analyze how you wish to buffer or buffer at
- *          all.
- *
- * @note    In case of HID keyboard, a temporary buffering could be employed to handle scenarios
- *          where encryption is not yet enabled or there was a momentary link loss or there were no
- *          Transmit buffers.
- */
-static void buffer_init(void)
-{
-    uint32_t buffer_count;
-
-    BUFFER_LIST_INIT();
-
-    for (buffer_count = 0; buffer_count < MAX_BUFFER_ENTRIES; buffer_count++)
-    {
-        BUFFER_ELEMENT_INIT(buffer_count);
-    }
-}
-
-
-/**@brief Function for enqueuing key scan patterns that could not be transmitted either completely
- *        or partially.
- *
- * @warning This handler is an example only. You need to analyze how you wish to send the key
- *          release.
- *
- * @param[in]  p_hids         Identifies the service for which Key Notifications are buffered.
- * @param[in]  p_key_pattern  Pointer to key pattern.
- * @param[in]  pattern_len    Length of key pattern.
- * @param[in]  offset         Offset applied to Key Pattern when requesting a transmission on
- *                            dequeue, @ref buffer_dequeue.
- * @return     NRF_SUCCESS on success, else an error code indicating reason for failure.
- */
-static uint32_t buffer_enqueue(ble_hids_t * p_hids,
-                               uint8_t    * p_key_pattern,
-                               uint16_t     pattern_len,
-                               uint16_t     offset)
-{
-    buffer_entry_t * element;
-    uint32_t         err_code = NRF_SUCCESS;
-
-    if (BUFFER_LIST_FULL())
-    {
-        // Element cannot be buffered.
-        err_code = NRF_ERROR_NO_MEM;
-    }
-    else
-    {
-        // Make entry of buffer element and copy data.
-        element              = &buffer_list.buffer[(buffer_list.wp)];
-        element->p_instance  = p_hids;
-        element->p_data      = p_key_pattern;
-        element->data_offset = offset;
-        element->data_len    = pattern_len;
-
-        buffer_list.count++;
-        buffer_list.wp++;
-
-        if (buffer_list.wp == MAX_BUFFER_ENTRIES)
-        {
-            buffer_list.wp = 0;
-        }
-    }
-
-    return err_code;
-}
-
-
-/**@brief   Function to dequeue key scan patterns that could not be transmitted either completely of
- *          partially.
- *
- * @warning This handler is an example only. You need to analyze how you wish to send the key
- *          release.
- *
- * @param[in]  tx_flag   Indicative of whether the dequeue should result in transmission or not.
- * @note       A typical example when all keys are dequeued with transmission is when link is
- *             disconnected.
- *
- * @return     NRF_SUCCESS on success, else an error code indicating reason for failure.
- */
-static uint32_t buffer_dequeue(bool tx_flag)
-{
-    buffer_entry_t * p_element;
-    uint32_t         err_code = NRF_SUCCESS;
-    uint16_t         actual_len;
-
-    if (BUFFER_LIST_EMPTY())
-    {
-        err_code = NRF_ERROR_NOT_FOUND;
-    }
-    else
-    {
-        bool remove_element = true;
-
-        p_element = &buffer_list.buffer[(buffer_list.rp)];
-
-        if (tx_flag)
-        {
-            err_code = send_key_scan_press_release(p_element->p_instance,
-                                                   p_element->p_data,
-                                                   p_element->data_len,
-                                                   p_element->data_offset,
-                                                   &actual_len);
-            // An additional notification is needed for release of all keys, therefore check
-            // is for actual_len <= element->data_len and not actual_len < element->data_len
-            if ((err_code == BLE_ERROR_NO_TX_PACKETS) && (actual_len <= p_element->data_len))
-            {
-                // Transmission could not be completed, do not remove the entry, adjust next data to
-                // be transmitted
-                p_element->data_offset = actual_len;
-                remove_element         = false;
-            }
-        }
-
-        if (remove_element)
-        {
-            BUFFER_ELEMENT_INIT(buffer_list.rp);
-
-            buffer_list.rp++;
-            buffer_list.count--;
-
-            if (buffer_list.rp == MAX_BUFFER_ENTRIES)
-            {
-                buffer_list.rp = 0;
-            }
-        }
-    }
-
-    return err_code;
-}
-
-
-/**@brief Function for sending sample key presses to the peer.
- *
- * @param[in]   key_pattern_len   Pattern length.
- * @param[in]   p_key_pattern     Pattern to be sent.
- */
-/*static void keys_send(uint8_t key_pattern_len, uint8_t * p_key_pattern)
-{
-    uint32_t err_code;
-    uint16_t actual_len;
-
-    err_code = send_key_scan_press_release(&m_hids,
-                                           p_key_pattern,
-                                           key_pattern_len,
-                                           0,
-                                           &actual_len);
-    // An additional notification is needed for release of all keys, therefore check
-    // is for actual_len <= key_pattern_len and not actual_len < key_pattern_len.
-    if ((err_code == BLE_ERROR_NO_TX_PACKETS) && (actual_len <= key_pattern_len))
-    {
-        // Buffer enqueue routine return value is not intentionally checked.
-        // Rationale: Its better to have a a few keys missing than have a system
-        // reset. Recommendation is to work out most optimal value for
-        // MAX_BUFFER_ENTRIES to minimize chances of buffer queue full condition
-        UNUSED_VARIABLE(buffer_enqueue(&m_hids, p_key_pattern, key_pattern_len, actual_len));
-    }
-
-
-    if ((err_code != NRF_SUCCESS) &&
-        (err_code != NRF_ERROR_INVALID_STATE) &&
-        (err_code != BLE_ERROR_NO_TX_PACKETS) &&
-        (err_code != BLE_ERROR_GATTS_SYS_ATTR_MISSING)
-       )
-    {
-        APP_ERROR_HANDLER(err_code);
-    }
-}
-*/
 
 /**@brief Function for handling HID events.
  *
@@ -1185,26 +889,15 @@ static void on_ble_evt(ble_evt_t * p_ble_evt)
         case BLE_GAP_EVT_CONNECTED:
             NRF_LOG_INFO("Connected\r\n");
             m_conn_handle = p_ble_evt->evt.gap_evt.conn_handle;
-            app_timer_start(m_key_interval_id,KEY_SENDING_INTERVAL,NULL);
             break; // BLE_GAP_EVT_CONNECTED
 
         case BLE_EVT_TX_COMPLETE:
             // Send next key event
-            (void) buffer_dequeue(true);
             break; // BLE_EVT_TX_COMPLETE
 
         case BLE_GAP_EVT_DISCONNECTED:
             NRF_LOG_INFO("Disconnected\r\n");
-            app_timer_stop(m_key_interval_id);
-            // Dequeue all keys without transmission.
-            (void) buffer_dequeue(false);
-
             m_conn_handle = BLE_CONN_HANDLE_INVALID;
-
-            // Reset m_caps_on variable. Upon reconnect, the HID host will re-send the Output
-            // report containing the Caps lock state.
-            m_caps_on = false;
-            // disabling alert 3. signal - used for capslock ON
 
 
             if (m_is_wl_changed)
@@ -1442,7 +1135,7 @@ static void advertising_init(void)
     advdata.uuids_complete.p_uuids  = m_adv_uuids;
 
     memset(&options, 0, sizeof(options));
-    options.ble_adv_whitelist_enabled      = true;
+    options.ble_adv_whitelist_enabled      = true; //after disconnection of host, device starts advertising again
     options.ble_adv_directed_enabled       = true;
     options.ble_adv_directed_slow_enabled  = false;
     options.ble_adv_directed_slow_interval = 0;
@@ -1478,14 +1171,19 @@ static void power_manage(void)
 int main(void)
 {
     bool     erase_bonds=true;
+    // @TODO: set up some kind of user option to erase bonds and pair new device (push button/button combo etc)
     uint32_t err_code;
+
 
     // Initialize.
     err_code = NRF_LOG_INIT(NULL);
     APP_ERROR_CHECK(err_code);
 
+    mcp2515_init(1); //8MHz crystal
+    mcp2515_start();
+
+    gpiote_init();
     timers_init();
-    //buttons_leds_init(&erase_bonds);
     ble_stack_init();
     scheduler_init();
     peer_manager_init(erase_bonds);
@@ -1496,12 +1194,10 @@ int main(void)
     gap_params_init();
     advertising_init();
     services_init();
-    //sensor_simulator_init();
     conn_params_init();
-    buffer_init();
 
     // Start execution.
-    NRF_LOG_INFO("HID Keyboard Start!\r\n");
+
     timers_start();
     advertising_start();
 
