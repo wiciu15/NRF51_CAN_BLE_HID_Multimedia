@@ -39,19 +39,20 @@
  */
 
 /** @file
+
+ * @brief Main file of CANbus-BLE HID Multimedia Keyboard
  *
- * @defgroup ble_sdk_app_hids_keyboard_main main.c
- * @{
- * @ingroup ble_sdk_app_hids_keyboard
- * @brief HID Keyboard Sample Application main file.
+ * This file contains the source code for application using the BLE HID Keyboard to send consumer(multimedia) keys to a paired device
+ * based on received CANbus messages
+ * BLE HID part is heavily based on ble_app_hids_keyboard example from NRFDSK12 and used under its conditions.
+ * This project features basic and lightweight MCP2515 SPI-CAN controller library,
+ * inspired by MCP2515 arduino library and headers from open-usb-can project by @fabiobaltieri.
+ * CAN message handling in software is based on the way linux kernel handles it.
  *
- * This file contains is the source code for a sample application using the HID, Battery and Device
- * Information Services for implementing a simple keyboard functionality.
- * Pressing Button 0 will send text 'hello' to the connected peer. On receiving output report,
- * it toggles the state of LED 2 on the mother board based on whether or not Caps Lock is on.
- * This application uses the @ref app_scheduler.
- *
- * Also it would accept pairing requests from any peer device.
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  */
 
 #include <stdint.h>
@@ -98,8 +99,8 @@
 #define UART_TX_BUF_SIZE                 256                                        /**< UART TX buffer size. */
 #define UART_RX_BUF_SIZE                 1                                          /**< UART RX buffer size. */
 
-#define DEVICE_NAME                      "Volt-multimedia"                          /**< Name of device. Will be included in the advertising data. */
-#define MANUFACTURER_NAME                "NordicSemiconductor"                      /**< Manufacturer. Will be passed to Device Information Service. */
+#define DEVICE_NAME                      "Volt multimedia"                          /**< Name of device. Will be included in the advertising data. */
+#define MANUFACTURER_NAME                "None"                   				    /**< Manufacturer. Will be passed to Device Information Service. */
 
 #define APP_TIMER_PRESCALER              0                                          /**< Value of the RTC1 PRESCALER register. */
 #define APP_TIMER_OP_QUEUE_SIZE          4                                          /**< Size of timer operation queues. */
@@ -107,8 +108,8 @@
 #define BATTERY_LEVEL_MEAS_INTERVAL      APP_TIMER_TICKS(2000, APP_TIMER_PRESCALER) /**< Battery level measurement interval (ticks). */
 #define KEY_RELEASE_REPORT_INTERVAL		 APP_TIMER_TICKS(30,APP_TIMER_PRESCALER)
 
-#define PNP_ID_VENDOR_ID_SOURCE          0x02                                       /**< Vendor ID Source. */
-#define PNP_ID_VENDOR_ID                 0x1915                                     /**< Vendor ID. */
+#define PNP_ID_VENDOR_ID_SOURCE          0x01                                       /**< Vendor ID Source. */
+#define PNP_ID_VENDOR_ID                 0xFFFF                                     /**< Vendor ID. */
 #define PNP_ID_PRODUCT_ID                0xEEEE                                     /**< Product ID. */
 #define PNP_ID_PRODUCT_VERSION           0x0001                                     /**< Product Version. */
 
@@ -145,7 +146,7 @@
 
 #define BASE_USB_HID_SPEC_VERSION        0x0101                                      /**< Version number of base USB HID Specification implemented by this application. */
 
-#define INPUT_REPORT_KEYS_MAX_LEN        8                                           /**< Maximum length of the Input Report characteristic. */
+#define INPUT_REPORT_KEYS_MAX_LEN        2                                           /**< Maximum length of the Input Report characteristic. */
 
 #define DEAD_BEEF                        0xDEADBEEF                                  /**< Value used as error code on stack dump, can be used to identify stack location on stack unwind. */
 
@@ -447,23 +448,25 @@ static void battery_level_meas_timeout_handler(void * p_context)
  * @details Function sends HID report with appropriate key pressed and triggers one-shot timer which sends an empty report (all key release) after few ms
  */
 static void hid_multimedia_send_key(uint8_t key){
-	uint8_t report[3]={0x01,0,0}; //empty hid report with no keys pressed
+	uint8_t report[2]={0x01,0}; //empty hid report with no keys pressed
 	    report[1] |= 1<<key;
 	    uint32_t err_code = ble_hids_inp_rep_send(&m_hids,
 	                                                 INPUT_REPORT_KEYS_INDEX,
 	                                                 INPUT_REPORT_KEYS_MAX_LEN,
 	                                                 report);
 	    app_timer_start(m_key_release_interval_id,KEY_RELEASE_REPORT_INTERVAL,NULL); //send empty report after a delay to simulate key release
+	    NRF_LOG_INFO("HID report %X;%X;\r\n",report[0],report[1]);
 }
 
 
 static void key_release_timer_timeout_handler(void * p_context){
 	UNUSED_PARAMETER(p_context);
-	    uint8_t report[3]={0x01,0,0}; //hid report with no keys pressed
-	    uint32_t err_code = ble_hids_inp_rep_send(&m_hids,
-	                                                 INPUT_REPORT_KEYS_INDEX,
-	                                                 INPUT_REPORT_KEYS_MAX_LEN,
-	                                                 report);
+	uint8_t report[2]={0x01,0}; //hid report with no keys pressed
+	uint32_t err_code = ble_hids_inp_rep_send(&m_hids,
+			INPUT_REPORT_KEYS_INDEX,
+			INPUT_REPORT_KEYS_MAX_LEN,
+			report);
+	NRF_LOG_INFO("HID report %X;%X;\r\n",report[0],report[1]);
 }
 
 /**@brief Function for the Timer initialization.
@@ -494,11 +497,18 @@ static void timers_init(void)
 static void mcp2515_int_pin_handler(nrf_drv_gpiote_pin_t pin, nrf_gpiote_polarity_t action){
 	mcp2515_rx(&received_can_frame);
 	NRF_LOG_INFO("CAN RX id%X data0x%X \r\n",received_can_frame.can_id,(received_can_frame.data[0]))
-	if(received_can_frame.data[0]==CAN_MEDIA_NEXT){
-		hid_multimedia_send_key(MEDIA_NEXT);
-	}
-	if(received_can_frame.data[0]==CAN_MEDIA_PREV){
-		hid_multimedia_send_key(MEDIA_PREV);
+
+	if(ble_conn_state_status(m_conn_handle)==BLE_CONN_STATUS_CONNECTED){
+		switch(received_can_frame.data[0]){
+		case CAN_MEDIA_NEXT :
+			hid_multimedia_send_key(MEDIA_NEXT);
+			break;
+		case CAN_MEDIA_PREV :
+			hid_multimedia_send_key(MEDIA_PREV);
+			break;
+		default:
+			break;
+		}
 	}
 }
 
@@ -628,7 +638,7 @@ static void hids_init(void)
 			0x15, 0x00, // LOGICAL_MINIMUM (0)
 			0x25, 0x01, // LOGICAL_MAXIMUM (1)
 			0x75, 0x01, // REPORT_SIZE (1)
-			0x95, 0x10, // REPORT_COUNT (16)
+			0x95, 0x10, // REPORT_COUNT (7)
 			0x09, 0xe2, // USAGE (Mute) 0x01
 			0x09, 0xe9, // USAGE (Volume Up) 0x02
 			0x09, 0xea, // USAGE (Volume Down) 0x03
@@ -636,15 +646,6 @@ static void hids_init(void)
 			0x09, 0xb7, // USAGE (Stop) 0x05
 			0x09, 0xb6, // USAGE (Scan Previous Track) 0x06
 			0x09, 0xb5, // USAGE (Scan Next Track) 0x07
-			0x0a, 0x8a, 0x01, // USAGE (Mail) 0x08
-			0x0a, 0x92, 0x01, // USAGE (Calculator) 0x09
-			0x0a, 0x21, 0x02, // USAGE (www search) 0x0a
-			0x0a, 0x23, 0x02, // USAGE (www home) 0x0b
-			0x0a, 0x2a, 0x02, // USAGE (www favorites) 0x0c
-			0x0a, 0x27, 0x02, // USAGE (www refresh) 0x0d
-			0x0a, 0x26, 0x02, // USAGE (www stop) 0x0e
-			0x0a, 0x25, 0x02, // USAGE (www forward) 0x0f
-			0x0a, 0x24, 0x02, // USAGE (www back) 0x10
 			0x81, 0x62, // INPUT (Data,Var,Abs,NPrf,Null)
 			0xc0
     };

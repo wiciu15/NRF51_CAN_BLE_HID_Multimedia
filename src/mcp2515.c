@@ -1,8 +1,7 @@
 /*
- * Copyright 2011 Fabio Baltieri <fabio.baltieri@gmail.com>
+ * Wiktor Burdecki 2021
  *
- * Contains code from the original Linux mcp251x.c driver by
- *   Christian Pellegrin, Copyright 2009 EVOL S.r.l.
+ * MCP2515 driver uses code from linux kernel and Fabio Baltieri's open-usb-can project
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,13 +16,7 @@
 #include "spi.h"
 #include "mcp2515.h"
 
-
-
 struct can_config can_cfg;
-
-static uint8_t ctrl;
-
-
 
 void mcp2515_init(uint8_t clkpre)
 {
@@ -32,7 +25,7 @@ void mcp2515_init(uint8_t clkpre)
 
 	nrf_delay_ms(10);
 
-	ctrl = CANCTRL_REQOP_CONF | CANCTRL_CLKEN | (clkpre & 0x03);
+	uint8_t ctrl = CANCTRL_REQOP_CONF | CANCTRL_CLKEN | (clkpre & 0x03);
 
 	mcp2515_write_reg(CANCTRL, ctrl);
 
@@ -109,19 +102,6 @@ uint8_t mcp2515_start(void)
 
 	mcp2515_write_reg(CANCTRL, 0x00); //Normal operating mode
 
-	return 0;
-}
-
-uint8_t mcp2515_stop(void)
-{
-	ctrl &= ~(CANCTRL_REQOP_MASK | CANCTRL_OSM);
-	ctrl |= CANCTRL_REQOP_CONF;
-
-	mcp2515_write_reg(CANCTRL, ctrl);
-	mcp2515_write_reg(TXBCTRL(0), 0x00);
-	mcp2515_write_reg(CNF1, 0x00);
-	mcp2515_write_reg(CNF2, 0x00);
-	mcp2515_write_reg(CNF3, 0x00);
 	return 0;
 }
 
