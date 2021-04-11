@@ -1,0 +1,5 @@
+(sym_lib_table
+  (lib (name TLE7250)(type Legacy)(uri ${KIPRJMOD}/TLE7250.lib)(options "")(descr ""))
+  (lib (name MP2315)(type Legacy)(uri ${KIPRJMOD}/MP2315.lib)(options "")(descr ""))
+  (lib (name AP2210)(type Legacy)(uri ${KIPRJMOD}/AP2210.lib)(options "")(descr ""))
+)

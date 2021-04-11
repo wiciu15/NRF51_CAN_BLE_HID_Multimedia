@@ -1,0 +1,8 @@
+EESchema-DOCLIB  Version 2.0
+#
+$CMP MP2315GJ-Z
+D przetwornica DC/DC; Upracy: 4,5÷24V; Uwyj: 0,8÷22,8V; buck
+F https://www.tme.eu/Document/97a205ad669bca30061d3fc6908e138e/MP2315GJ-DTE.pdf
+$ENDCMP
+#
+#End Doc Library
