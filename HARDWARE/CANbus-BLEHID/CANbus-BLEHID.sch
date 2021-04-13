@@ -1488,7 +1488,7 @@ U 1 1 6096D135
 P 600 1250
 F 0 "J1" H 600 1450 50  0000 C CNN
 F 1 "AC300V-04P-5.0" H 350 1550 50  0000 C CNN
-F 2 "TerminalBlock:TerminalBlock_Altech_AK300-4_P5.00mm" H 600 1250 50  0001 C CNN
+F 2 "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-4_1x04_P5.00mm_Horizontal" H 600 1250 50  0001 C CNN
 F 3 "https://www.tme.eu/pl/details/tb-5.0-p-4p1_gy/listwy-zaciskowe-do-druku/ninigi/ac300v-04p-5-0-gray/" H 600 1250 50  0001 C CNN
 	1    600  1250
 	-1   0    0    1   

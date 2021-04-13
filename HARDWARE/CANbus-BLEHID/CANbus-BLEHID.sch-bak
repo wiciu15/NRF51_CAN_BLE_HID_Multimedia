@@ -467,7 +467,7 @@ U 1 1 606EA780
 P 2900 3300
 F 0 "AE1" H 2650 3350 50  0000 L CNN
 F 1 "2.45 GHz PCB antenna" H 2000 3250 50  0000 L CNN
-F 2 "RF_Antenna:Texas_SWRA117D_2.4GHz_Right" H 2900 3300 50  0001 C CNN
+F 2 "RF_Antenna:Texas_SWRA117D_2.4GHz_Left" H 2900 3300 50  0001 C CNN
 F 3 "https://www.ti.com/lit/an/swra117d/swra117d.pdf" H 2900 3300 50  0001 C CNN
 	1    2900 3300
 	1    0    0    -1  
