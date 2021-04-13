@@ -1,4 +1,5 @@
-###### *TLDR: Controlling spotify on the phone, with car's CAN bus*
+
+#### *TLDR: Controlling spotify on the phone, with car's CAN bus*
 
 This project is a ***work in progress***. Comes with no warranty. Vehicles CAN-bus is a powerful tool, ***use at your own risk***, author does not have responsibility for any damage on property or health.
 
@@ -11,9 +12,11 @@ HID report descriptor is custom and supports only 7 consumer control(multimedia)
 CAN frames processing is offloaded to MCP2515 with usage of filters, to reduce uC usage and energy efficiency.
 While MCP2515 is used in normal operating mode, device should not transmit anything other than error frames.
 
-[Project log](https://hackaday.io/project/176834-chevy-volt-sw-can-ble-multimedia-control)
+**[Project log on hackaday.io](https://hackaday.io/project/176834-chevy-volt-sw-can-ble-multimedia-control)**
 
-Provided files are Eclipse GNU MCU Embedded project. To build it you need to also provide NRF SDK v12.3 (include directories), GCC arm-none-eabi compiler, and OpenOCD to use flash script (flash.bat file) with ST-Link v3 SWD programmer.
+![PCB render](HARDWARE/CANbus-BLEHID/CANbus-BLEHID.png)
+
+Provided files are Eclipse GNU MCU Embedded project. To build it you need to also provide NRF SDK v12.3 (include directories), GCC arm-none-eabi compiler, and OpenOCD to use flash script (flash.bat file) with ST-Link v2 SWD programmer.
 
 Software contains code from linux kernel CAN driver, and open-usb-can project by Fabio Baltieri.
 
