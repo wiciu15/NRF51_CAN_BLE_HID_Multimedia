@@ -21,17 +21,9 @@ struct can_config can_cfg;
 void mcp2515_init(uint8_t clkpre)
 {
 	spi0_init();
-	mcp2515_reset();
-
-	nrf_delay_ms(10);
-
-	uint8_t ctrl = CANCTRL_REQOP_CONF | CANCTRL_CLKEN | (clkpre & 0x03);
-
-	mcp2515_write_reg(CANCTRL, ctrl);
-
-	nrf_delay_ms(10);
-
+	mcp2515_soft_reset();
 	memset(&can_cfg, 0, sizeof(can_cfg));
+	nrf_delay_ms(2);
 }
 
 uint8_t mcp2515_read_reg(uint8_t addr)
@@ -66,7 +58,8 @@ void mcp2515_write_reg(uint8_t addr, uint8_t data)
 	spi0_cs_high();
 }
 
-static void mcp2515_reset(void)
+//@TODO: ADD hard-reset option with gpio
+static void mcp2515_soft_reset(void)
 {
 	spi0_cs_low();
 	spi0_transfer(INSTRUCTION_RESET);
@@ -81,7 +74,7 @@ uint8_t mcp2515_start(void)
 	mcp2515_write_reg(CNF3, MCP_8MHz_33k3BPS_CFG3);
 
 
-	mcp2515_write_reg(RXBCTRL(0),0x00); //only frames meeting filter criteria will end up in buffer
+	mcp2515_write_reg(RXBCTRL(0),0x00); //configure RXB0 so only frames meeting filter criteria will end up in buffer
 
 	//set up filter 0 to filter all except can-id 0x10438040 (steering wheel multimedia signals)
 	mcp2515_write_reg(RXF0SIDH,0x82);
@@ -103,6 +96,11 @@ uint8_t mcp2515_start(void)
 	mcp2515_write_reg(CANCTRL, 0x00); //Normal operating mode
 
 	return 0;
+}
+
+void mcp2515_sleep(){
+	mcp2515_write_reg(CANINTE,CANINTE_WAKIE); //enable interrupt to wake up on CAN bus activity
+	mcp2515_write_reg(CANCTRL,0x20); //request sleep mode
 }
 
 void mcp2515_rx(struct can_frame * frame)

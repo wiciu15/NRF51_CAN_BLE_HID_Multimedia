@@ -38,6 +38,12 @@ ret_code_t spi0_init(){
 	return nrf_drv_spi_init(&spi, &spi_config, NULL);
 }
 
+/**@brief Chip-select pin control
+ *
+ * @details Software control od CS pin is needed since one edge on CS pin must account for one instruction,
+ * 			and each MCP2515 instruction would send/receive different amount of bytes so can't be hardcoded.
+ *
+ */
 void spi0_cs_low(){
 	nrf_gpio_pin_clear(SPI_CS_PIN);
 }
@@ -49,11 +55,16 @@ void spi0_cs_high(){
 /**@brief Function used to send/receive byte from SPI peripheral
  *
  * @details This function is called to send/receive byte.
+ * 			Doing this stuff one byte at a time and using NRF driver is painfully slow.
+ * 			Doesn't matter here since receiving 1 CAN frame from MCP2515's internal buffer is still faster than transmitting one
+ * 			CAN frame itself (at 33,3kbaud at least)
  *
  * @param[in]   data   byte to send
  */
 uint8_t spi0_transfer(uint8_t data){
+	//@TODO:that is really slow solution, for higher CAN baudrates might not work - new CAN frames transmitted over CAN BUS while MCU is still reading old one from buffer via SPI
+	//		new,faster implementation of reading RXB0 buffer would be needed, this might still work for configuration/status stuff
 	uint8_t spi_rx_buffer=0;
-	APP_ERROR_CHECK(nrf_drv_spi_transfer(&spi, &data, 1, &spi_rx_buffer, 1));
+	nrf_drv_spi_transfer(&spi, &data, 1, &spi_rx_buffer, 1);
 	return spi_rx_buffer;
 }

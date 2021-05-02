@@ -107,6 +107,8 @@
 
 #define BATTERY_LEVEL_MEAS_INTERVAL      APP_TIMER_TICKS(2000, APP_TIMER_PRESCALER) /**< Battery level measurement interval (ticks). */
 #define KEY_RELEASE_REPORT_INTERVAL		 APP_TIMER_TICKS(30,APP_TIMER_PRESCALER)
+#define DELAY_BEFORE_SLEEP				 APP_TIMER_TICKS(30000,APP_TIMER_PRESCALER) /**< ms before MCP2515 going to sleep mode after BLE disconnected */
+#define START_PLAYING_DELAY				 APP_TIMER_TICKS(3000,APP_TIMER_PRESCALER)  /**< ms after BLE connect event, that play button report is sent */
 
 #define PNP_ID_VENDOR_ID_SOURCE          0x01                                       /**< Vendor ID Source. */
 #define PNP_ID_VENDOR_ID                 0xFFFF                                     /**< Vendor ID. */
@@ -182,6 +184,8 @@ struct can_frame received_can_frame;						/** buffer to store received can frame
 
 APP_TIMER_DEF(m_battery_timer_id);                          /**< Battery timer. */
 APP_TIMER_DEF(m_key_release_interval_id);
+APP_TIMER_DEF(m_sleep_delay_timer_id);
+APP_TIMER_DEF(m_start_playing_timer_id);
 
 static pm_peer_id_t m_peer_id;                              /**< Device reference handle to the current bonded central. */
 
@@ -469,6 +473,41 @@ static void key_release_timer_timeout_handler(void * p_context){
 	NRF_LOG_INFO("HID report %X;%X;\r\n",report[0],report[1]);
 }
 
+/**@brief Function for entering sleep mode in mcp2515 and system off of NRF51 MCU
+ *
+ * @details Function sets up mcp2515 chip to go to power saving mode, and only generate an interrupt when CAN bus activity occurred
+ * 			Sleep mode is requested after a delay because vehicles CAN bus can remain active after disconnecting a phone
+ * 			CAN bus can be active even when vehicle is parked/charging etc. in that case the system will boot up, wait for connection
+ * 			for defined delay and then go to sleep again. If CAN bus activity occurred because driver opened the vehicle, his phone
+ * 			should connect with BLE thus stopping the delay timer till BLE disconnection event.
+ * 			MCU enters power off mode with opportunity to be waken up with pin connected to MCP2515 interrupt pin
+ * 			When MCP2515 detects CAN bus activity the generated interrupt wakes up the MCU, and sice no RAM retention is configured
+ * 			it should start executing from the beginning
+ */
+
+static void sleep_delay_timer_timeout_handler(void * p_context){
+	UNUSED_PARAMETER(p_context);
+	NRF_LOG_INFO("Requesting sleep mode\r\n");
+	mcp2515_sleep();
+	nrf_gpio_cfg_sense_input(MCP2515_INT_PIN,NRF_GPIO_PIN_NOPULL,NRF_GPIO_PIN_SENSE_LOW);
+
+	// Configure nRF51 RAM retention parameters. Set for System Off 0kB RAM retention
+	NRF_POWER->RAMON = POWER_RAMON_ONRAM0_RAM0On   << POWER_RAMON_ONRAM0_Pos
+			| POWER_RAMON_ONRAM1_RAM1On   << POWER_RAMON_ONRAM1_Pos
+			| POWER_RAMON_OFFRAM0_RAM0Off << POWER_RAMON_OFFRAM0_Pos
+			| POWER_RAMON_OFFRAM1_RAM1Off << POWER_RAMON_OFFRAM1_Pos;
+	NRF_POWER->RAMONB = POWER_RAMONB_ONRAM2_RAM2Off   << POWER_RAMONB_ONRAM2_Pos
+			| POWER_RAMONB_ONRAM3_RAM3Off   << POWER_RAMONB_ONRAM3_Pos
+			| POWER_RAMONB_OFFRAM2_RAM2Off  << POWER_RAMONB_OFFRAM2_Pos
+			| POWER_RAMONB_OFFRAM3_RAM3Off  << POWER_RAMONB_OFFRAM3_Pos;
+
+NRF_POWER->SYSTEMOFF=1; //go to system off
+}
+
+static void start_playing_after_connect_timeout(void * p_context){
+	hid_multimedia_send_key(MEDIA_PLAY);
+}
+
 /**@brief Function for the Timer initialization.
  *
  * @details Initializes the timer module.
@@ -485,6 +524,8 @@ static void timers_init(void)
                                 APP_TIMER_MODE_REPEATED,
                                 battery_level_meas_timeout_handler);
     err_code = app_timer_create(&m_key_release_interval_id,APP_TIMER_MODE_SINGLE_SHOT,key_release_timer_timeout_handler);
+    err_code = app_timer_create(&m_sleep_delay_timer_id,APP_TIMER_MODE_SINGLE_SHOT,sleep_delay_timer_timeout_handler);
+    err_code = app_timer_create(&m_start_playing_timer_id,APP_TIMER_MODE_SINGLE_SHOT,start_playing_after_connect_timeout);
     APP_ERROR_CHECK(err_code);
 
 
@@ -496,7 +537,7 @@ static void timers_init(void)
  */
 static void mcp2515_int_pin_handler(nrf_drv_gpiote_pin_t pin, nrf_gpiote_polarity_t action){
 	mcp2515_rx(&received_can_frame);
-	NRF_LOG_INFO("CAN RX id%X data0x%X \r\n",received_can_frame.can_id,(received_can_frame.data[0]))
+	NRF_LOG_INFO("CAN RX id%X data0x%X \r\n",received_can_frame.can_id&CAN_EFF_MASK,(received_can_frame.data[0]))
 
 	if(ble_conn_state_status(m_conn_handle)==BLE_CONN_STATUS_CONNECTED){
 		switch(received_can_frame.data[0]){
@@ -642,7 +683,7 @@ static void hids_init(void)
 			0x09, 0xe2, // USAGE (Mute) 0x01
 			0x09, 0xe9, // USAGE (Volume Up) 0x02
 			0x09, 0xea, // USAGE (Volume Down) 0x03
-			0x09, 0xcd, // USAGE (Play/Pause) 0x04
+			0x09, 0xb0, // USAGE (Play) 0x04
 			0x09, 0xb7, // USAGE (Stop) 0x05
 			0x09, 0xb6, // USAGE (Scan Previous Track) 0x06
 			0x09, 0xb5, // USAGE (Scan Next Track) 0x07
@@ -759,6 +800,7 @@ static void timers_start(void)
     uint32_t err_code;
 
     err_code = app_timer_start(m_battery_timer_id, BATTERY_LEVEL_MEAS_INTERVAL, NULL);
+    err_code = app_timer_start(m_sleep_delay_timer_id,DELAY_BEFORE_SLEEP,NULL);
     APP_ERROR_CHECK(err_code);
 }
 
@@ -890,6 +932,8 @@ static void on_ble_evt(ble_evt_t * p_ble_evt)
         case BLE_GAP_EVT_CONNECTED:
             NRF_LOG_INFO("Connected\r\n");
             m_conn_handle = p_ble_evt->evt.gap_evt.conn_handle;
+            app_timer_stop(m_sleep_delay_timer_id);
+            app_timer_start(m_start_playing_timer_id,START_PLAYING_DELAY,NULL);
             break; // BLE_GAP_EVT_CONNECTED
 
         case BLE_EVT_TX_COMPLETE:
@@ -899,7 +943,7 @@ static void on_ble_evt(ble_evt_t * p_ble_evt)
         case BLE_GAP_EVT_DISCONNECTED:
             NRF_LOG_INFO("Disconnected\r\n");
             m_conn_handle = BLE_CONN_HANDLE_INVALID;
-
+            app_timer_start(m_sleep_delay_timer_id,DELAY_BEFORE_SLEEP,NULL);
 
             if (m_is_wl_changed)
             {
@@ -1173,6 +1217,7 @@ int main(void)
 {
     bool     erase_bonds=true;
     // @TODO: set up some kind of user option to erase bonds and pair new device (push button/button combo etc)
+    // @TODO: figure out how to delete device from peer manager when pair is deleted on a phone/host (MCU thinks its connected so won't go to sleep, neither pair to new device - bonds erasing needed on MCU side)
     uint32_t err_code;
 
 
@@ -1180,10 +1225,10 @@ int main(void)
     err_code = NRF_LOG_INIT(NULL);
     APP_ERROR_CHECK(err_code);
 
+    gpiote_init();
     mcp2515_init(1); //8MHz crystal
     mcp2515_start();
 
-    gpiote_init();
     timers_init();
     ble_stack_init();
     scheduler_init();

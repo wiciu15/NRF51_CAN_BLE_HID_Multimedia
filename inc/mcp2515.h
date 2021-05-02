@@ -140,7 +140,7 @@
 
 #define MCP_8MHz_33k3BPS_CFG1 (0x47)
 #define MCP_8MHz_33k3BPS_CFG2 (0xE2)
-#define MCP_8MHz_33k3BPS_CFG3 (0x85)
+#define MCP_8MHz_33k3BPS_CFG3 (0x05)
 
 
 extern struct can_config can_cfg;
@@ -149,8 +149,8 @@ void mcp2515_init(uint8_t clkpre);
 uint8_t mcp2515_read_reg(uint8_t addr);
 uint8_t mcp2515_read_rx_status();
 void mcp2515_write_reg(uint8_t addr, uint8_t data);
-static void mcp2515_reset(void);
+static void mcp2515_soft_reset(void);
 uint8_t mcp2515_start(void);
-uint8_t mcp2515_stop(void);
+void mcp2515_sleep(void);
 void mcp2515_rx(struct can_frame * frame);
 

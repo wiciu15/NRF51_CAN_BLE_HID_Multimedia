@@ -3,7 +3,7 @@
 #define MEDIA_MUTE 0
 #define MEDIA_VOLUP 1
 #define MEDIA_VOLDOWN 2
-#define MEDIA_PLAY_PAUSE 3
+#define MEDIA_PLAY 3
 #define MEDIA_STOP 4
 #define MEDIA_PREV 5
 #define MEDIA_NEXT 6

@@ -3474,6 +3474,8 @@
 //==========================================================
 // <e> NRF_LOG_ENABLED - nrf_log - Logging
 //==========================================================
+
+//@TODO: Disable logging for final app since it uses UART in blocking mode and slows down program significantly
 #ifndef NRF_LOG_ENABLED
 #define NRF_LOG_ENABLED 1
 #endif
