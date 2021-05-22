@@ -109,6 +109,7 @@
 #define KEY_RELEASE_REPORT_INTERVAL		 APP_TIMER_TICKS(30,APP_TIMER_PRESCALER)
 #define DELAY_BEFORE_SLEEP				 APP_TIMER_TICKS(30000,APP_TIMER_PRESCALER) /**< ms before MCP2515 going to sleep mode after BLE disconnected */
 #define START_PLAYING_DELAY				 APP_TIMER_TICKS(3000,APP_TIMER_PRESCALER)  /**< ms after BLE connect event, that play button report is sent */
+#define LED_BLINK_TIME					 APP_TIMER_TICKS(100,APP_TIMER_PRESCALER)	/**< lenght of activity led blink*/
 
 #define PNP_ID_VENDOR_ID_SOURCE          0x01                                       /**< Vendor ID Source. */
 #define PNP_ID_VENDOR_ID                 0xFFFF                                     /**< Vendor ID. */
@@ -186,6 +187,8 @@ APP_TIMER_DEF(m_battery_timer_id);                          /**< Battery timer. 
 APP_TIMER_DEF(m_key_release_interval_id);
 APP_TIMER_DEF(m_sleep_delay_timer_id);
 APP_TIMER_DEF(m_start_playing_timer_id);
+APP_TIMER_DEF(m_blink); //activity and status led
+APP_TIMER_DEF(m_adv_blink); //blinking when advertising
 
 static pm_peer_id_t m_peer_id;                              /**< Device reference handle to the current bonded central. */
 
@@ -433,6 +436,10 @@ static void battery_level_update(void)
     }
 }
 
+static void LED_blink(void){
+	app_timer_start(m_blink,LED_BLINK_TIME,NULL);
+	nrf_gpio_pin_clear(14);
+}
 
 /**@brief Function for handling the Battery measurement timer timeout.
  *
@@ -490,6 +497,7 @@ static void sleep_delay_timer_timeout_handler(void * p_context){
 	NRF_LOG_INFO("Requesting sleep mode\r\n");
 	mcp2515_sleep();
 	nrf_gpio_cfg_sense_input(MCP2515_INT_PIN,NRF_GPIO_PIN_NOPULL,NRF_GPIO_PIN_SENSE_LOW);
+	LED_blink();
 
 	// Configure nRF51 RAM retention parameters. Set for System Off 0kB RAM retention
 	NRF_POWER->RAMON = POWER_RAMON_ONRAM0_RAM0On   << POWER_RAMON_ONRAM0_Pos
@@ -506,6 +514,14 @@ NRF_POWER->SYSTEMOFF=1; //go to system off
 
 static void start_playing_after_connect_timeout(void * p_context){
 	hid_multimedia_send_key(MEDIA_PLAY);
+}
+
+static void blink_led_on(void * p_context){
+	nrf_gpio_pin_set(14);
+}
+
+static void blink_adv_toggle(void * p_context){
+	nrf_gpio_pin_toggle(14);
 }
 
 /**@brief Function for the Timer initialization.
@@ -526,6 +542,9 @@ static void timers_init(void)
     err_code = app_timer_create(&m_key_release_interval_id,APP_TIMER_MODE_SINGLE_SHOT,key_release_timer_timeout_handler);
     err_code = app_timer_create(&m_sleep_delay_timer_id,APP_TIMER_MODE_SINGLE_SHOT,sleep_delay_timer_timeout_handler);
     err_code = app_timer_create(&m_start_playing_timer_id,APP_TIMER_MODE_SINGLE_SHOT,start_playing_after_connect_timeout);
+    nrf_gpio_cfg_output(14); //blink led output
+    err_code = app_timer_create(&m_blink,APP_TIMER_MODE_SINGLE_SHOT,blink_led_on);
+    err_code = app_timer_create(&m_adv_blink,APP_TIMER_MODE_REPEATED,blink_adv_toggle);
     APP_ERROR_CHECK(err_code);
 
 
@@ -538,7 +557,7 @@ static void timers_init(void)
 static void mcp2515_int_pin_handler(nrf_drv_gpiote_pin_t pin, nrf_gpiote_polarity_t action){
 	mcp2515_rx(&received_can_frame);
 	NRF_LOG_INFO("CAN RX id%X data0x%X \r\n",received_can_frame.can_id&CAN_EFF_MASK,(received_can_frame.data[0]))
-
+	LED_blink();
 	if(ble_conn_state_status(m_conn_handle)==BLE_CONN_STATUS_CONNECTED){
 		switch(received_can_frame.data[0]){
 		case CAN_MEDIA_NEXT :
@@ -853,7 +872,7 @@ static void on_adv_evt(ble_adv_evt_t ble_adv_evt)
 
         case BLE_ADV_EVT_FAST:
             NRF_LOG_INFO("BLE_ADV_EVT_FAST\r\n");
-
+            app_timer_start(m_adv_blink,LED_BLINK_TIME,NULL);
             break; //BLE_ADV_EVT_FAST
 
         case BLE_ADV_EVT_SLOW:
@@ -933,6 +952,7 @@ static void on_ble_evt(ble_evt_t * p_ble_evt)
             NRF_LOG_INFO("Connected\r\n");
             m_conn_handle = p_ble_evt->evt.gap_evt.conn_handle;
             app_timer_stop(m_sleep_delay_timer_id);
+            app_timer_stop(m_adv_blink);
             app_timer_start(m_start_playing_timer_id,START_PLAYING_DELAY,NULL);
             break; // BLE_GAP_EVT_CONNECTED
 

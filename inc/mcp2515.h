@@ -149,6 +149,7 @@ void mcp2515_init(uint8_t clkpre);
 uint8_t mcp2515_read_reg(uint8_t addr);
 uint8_t mcp2515_read_rx_status();
 void mcp2515_write_reg(uint8_t addr, uint8_t data);
+static void mcp2515_reset(void);
 static void mcp2515_soft_reset(void);
 uint8_t mcp2515_start(void);
 void mcp2515_sleep(void);

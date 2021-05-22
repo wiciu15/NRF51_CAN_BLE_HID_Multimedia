@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "nrf_delay.h"
+#include "nrf_gpio.h"
 #include "spi.h"
 #include "mcp2515.h"
 
@@ -21,7 +22,12 @@ struct can_config can_cfg;
 void mcp2515_init(uint8_t clkpre)
 {
 	spi0_init();
+	mcp2515_reset();
 	mcp2515_soft_reset();
+
+	nrf_gpio_cfg_output(9);
+	nrf_gpio_pin_clear(9);//enable CAN transciever
+
 	memset(&can_cfg, 0, sizeof(can_cfg));
 	nrf_delay_ms(2);
 }
@@ -58,7 +64,14 @@ void mcp2515_write_reg(uint8_t addr, uint8_t data)
 	spi0_cs_high();
 }
 
-//@TODO: ADD hard-reset option with gpio
+
+
+static void mcp2515_reset(void){
+	nrf_gpio_cfg_output(8);
+	nrf_gpio_pin_clear(8);
+	nrf_delay_ms(1);
+	nrf_gpio_pin_set(8);
+}
 static void mcp2515_soft_reset(void)
 {
 	spi0_cs_low();
