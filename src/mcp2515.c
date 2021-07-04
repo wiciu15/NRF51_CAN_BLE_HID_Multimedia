@@ -19,7 +19,7 @@
 
 struct can_config can_cfg;
 
-void mcp2515_init(uint8_t clkpre)
+void mcp2515_init()
 {
 	spi0_init();
 	mcp2515_reset();
@@ -82,9 +82,9 @@ static void mcp2515_soft_reset(void)
 uint8_t mcp2515_start(void)
 {
 	//set clocks for 33k3 CAN baudrate
-	mcp2515_write_reg(CNF1, MCP_8MHz_33k3BPS_CFG1);
-	mcp2515_write_reg(CNF2, MCP_8MHz_33k3BPS_CFG2);
-	mcp2515_write_reg(CNF3, MCP_8MHz_33k3BPS_CFG3);
+	mcp2515_write_reg(CNF1, MCP_16MHz_33k3BPS_CFG1);
+	mcp2515_write_reg(CNF2, MCP_16MHz_33k3BPS_CFG2);
+	mcp2515_write_reg(CNF3, MCP_16MHz_33k3BPS_CFG3);
 
 
 	mcp2515_write_reg(RXBCTRL(0),0x00); //configure RXB0 so only frames meeting filter criteria will end up in buffer

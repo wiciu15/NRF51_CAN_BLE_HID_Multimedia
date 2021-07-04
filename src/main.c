@@ -496,7 +496,7 @@ static void sleep_delay_timer_timeout_handler(void * p_context){
 	UNUSED_PARAMETER(p_context);
 	NRF_LOG_INFO("Requesting sleep mode\r\n");
 	mcp2515_sleep();
-	nrf_gpio_cfg_sense_input(MCP2515_INT_PIN,NRF_GPIO_PIN_NOPULL,NRF_GPIO_PIN_SENSE_LOW);
+	nrf_gpio_cfg_sense_input(MCP2515_INT_PIN,NRF_GPIO_PIN_PULLUP,NRF_GPIO_PIN_SENSE_LOW);
 	LED_blink();
 
 	// Configure nRF51 RAM retention parameters. Set for System Off 0kB RAM retention
@@ -1246,8 +1246,9 @@ int main(void)
     APP_ERROR_CHECK(err_code);
 
     gpiote_init();
-    mcp2515_init(1); //8MHz crystal
+    mcp2515_init();
     mcp2515_start();
+    NRF_LOG_INFO("MCP2515 init - 16Mhz\r\n");
 
     timers_init();
     ble_stack_init();
