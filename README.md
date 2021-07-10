@@ -12,7 +12,7 @@ HID report descriptor is custom and supports only 7 consumer control(multimedia)
 CAN frames processing is offloaded to MCP2515 with usage of filters, to reduce uC usage and energy efficiency.
 While MCP2515 is used in normal operating mode, device should not transmit anything other than error/ack frames.
 
-PCB design needs some fixes and further testing. As of this moment 16Mhz crystal footprint is mirrored and MCP2515 INT pin needs a pullup resistor.
+PCB design needs some fixes and further testing. As of this moment 16Mhz crystal footprint is mirrored, MCP2515 INT pin needs a pullup resistor and SWDIO/RST pullup+optional power-on-reset 2.2u capacitor.
 
 **[Project log on hackaday.io](https://hackaday.io/project/176834-chevy-volt-sw-can-ble-multimedia-control)**
 

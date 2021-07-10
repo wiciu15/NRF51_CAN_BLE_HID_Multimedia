@@ -108,8 +108,9 @@
 #define BATTERY_LEVEL_MEAS_INTERVAL      APP_TIMER_TICKS(2000, APP_TIMER_PRESCALER) /**< Battery level measurement interval (ticks). */
 #define KEY_RELEASE_REPORT_INTERVAL		 APP_TIMER_TICKS(30,APP_TIMER_PRESCALER)
 #define DELAY_BEFORE_SLEEP				 APP_TIMER_TICKS(30000,APP_TIMER_PRESCALER) /**< ms before MCP2515 going to sleep mode after BLE disconnected */
-#define START_PLAYING_DELAY				 APP_TIMER_TICKS(3000,APP_TIMER_PRESCALER)  /**< ms after BLE connect event, that play button report is sent */
+#define START_PLAYING_DELAY				 APP_TIMER_TICKS(5000,APP_TIMER_PRESCALER)  /**< ms after BLE connect event, that play button report is sent */
 #define LED_BLINK_TIME					 APP_TIMER_TICKS(100,APP_TIMER_PRESCALER)	/**< lenght of activity led blink*/
+#define HOLD_TO_ERASE_BONDS_DELAY		 APP_TIMER_TICKS(3000,APP_TIMER_PRESCALER)	/**< how long is a key press needed to start bond erasing and pairing to new device */
 
 #define PNP_ID_VENDOR_ID_SOURCE          0x01                                       /**< Vendor ID Source. */
 #define PNP_ID_VENDOR_ID                 0xFFFF                                     /**< Vendor ID. */
@@ -153,6 +154,8 @@
 
 #define DEAD_BEEF                        0xDEADBEEF                                  /**< Value used as error code on stack dump, can be used to identify stack location on stack unwind. */
 
+#define RESET_BONDS_BUTTON_PIN			 15
+#define ONBOARD_LED_PIN					 14
 #define SCHED_MAX_EVENT_DATA_SIZE        MAX(APP_TIMER_SCHED_EVT_SIZE, \
                                              BLE_STACK_HANDLER_SCHED_EVT_SIZE)       /**< Maximum size of scheduler events. */
 #ifdef SVCALL_AS_NORMAL_FUNCTION
@@ -189,6 +192,7 @@ APP_TIMER_DEF(m_sleep_delay_timer_id);
 APP_TIMER_DEF(m_start_playing_timer_id);
 APP_TIMER_DEF(m_blink); //activity and status led
 APP_TIMER_DEF(m_adv_blink); //blinking when advertising
+APP_TIMER_DEF(m_hold_to_erase_bonds_timer); //hold button on steering wheel to erase all bonds and reset
 
 static pm_peer_id_t m_peer_id;                              /**< Device reference handle to the current bonded central. */
 
@@ -438,7 +442,7 @@ static void battery_level_update(void)
 
 static void LED_blink(void){
 	app_timer_start(m_blink,LED_BLINK_TIME,NULL);
-	nrf_gpio_pin_clear(14);
+	nrf_gpio_pin_clear(ONBOARD_LED_PIN);
 }
 
 /**@brief Function for handling the Battery measurement timer timeout.
@@ -495,6 +499,7 @@ static void key_release_timer_timeout_handler(void * p_context){
 static void sleep_delay_timer_timeout_handler(void * p_context){
 	UNUSED_PARAMETER(p_context);
 	NRF_LOG_INFO("Requesting sleep mode\r\n");
+	nrf_gpio_pin_clear(ONBOARD_LED_PIN);
 	mcp2515_sleep();
 	nrf_gpio_cfg_sense_input(MCP2515_INT_PIN,NRF_GPIO_PIN_PULLUP,NRF_GPIO_PIN_SENSE_LOW);
 	LED_blink();
@@ -517,11 +522,30 @@ static void start_playing_after_connect_timeout(void * p_context){
 }
 
 static void blink_led_on(void * p_context){
-	nrf_gpio_pin_set(14);
+	nrf_gpio_pin_set(ONBOARD_LED_PIN);
 }
 
 static void blink_adv_toggle(void * p_context){
-	nrf_gpio_pin_toggle(14);
+	LED_blink();
+}
+
+static void hold_to_erase_bonds_handler(void * p_context){
+
+	ret_code_t           err_code;
+
+	NRF_LOG_INFO("BLE disconnect\r\n");
+	if(ble_conn_state_status(m_conn_handle)==BLE_CONN_STATUS_CONNECTED){
+		err_code = sd_ble_gap_disconnect(m_conn_handle,BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
+		APP_ERROR_CHECK(err_code);
+	}
+
+	NRF_LOG_INFO("Delete all peers from device manager\r\n");
+	err_code = pm_peers_delete();
+	APP_ERROR_CHECK(err_code);
+
+	NRF_LOG_INFO("Issue NVIC_SystemReset() to reboot\r\n");
+	__disable_irq();
+	NVIC_SystemReset();
 }
 
 /**@brief Function for the Timer initialization.
@@ -542,12 +566,21 @@ static void timers_init(void)
     err_code = app_timer_create(&m_key_release_interval_id,APP_TIMER_MODE_SINGLE_SHOT,key_release_timer_timeout_handler);
     err_code = app_timer_create(&m_sleep_delay_timer_id,APP_TIMER_MODE_SINGLE_SHOT,sleep_delay_timer_timeout_handler);
     err_code = app_timer_create(&m_start_playing_timer_id,APP_TIMER_MODE_SINGLE_SHOT,start_playing_after_connect_timeout);
-    nrf_gpio_cfg_output(14); //blink led output
+    nrf_gpio_cfg_output(ONBOARD_LED_PIN); //blink led output
     err_code = app_timer_create(&m_blink,APP_TIMER_MODE_SINGLE_SHOT,blink_led_on);
     err_code = app_timer_create(&m_adv_blink,APP_TIMER_MODE_REPEATED,blink_adv_toggle);
+    err_code = app_timer_create(&m_hold_to_erase_bonds_timer,APP_TIMER_MODE_SINGLE_SHOT,hold_to_erase_bonds_handler);
     APP_ERROR_CHECK(err_code);
 
 
+}
+
+/**@brief Handler for ext interrupt from button on PCB
+ *
+ * @details This function clears bonding data and resets the MCU on PCB button press
+ */
+static void bonds_reset_button_int_handler(nrf_drv_gpiote_pin_t pin, nrf_gpiote_polarity_t action){
+	hold_to_erase_bonds_handler(NULL);
 }
 
 /**@brief Handler for MCP2515 INT pin external interrupt
@@ -558,6 +591,16 @@ static void mcp2515_int_pin_handler(nrf_drv_gpiote_pin_t pin, nrf_gpiote_polarit
 	mcp2515_rx(&received_can_frame);
 	NRF_LOG_INFO("CAN RX id%X data0x%X \r\n",received_can_frame.can_id&CAN_EFF_MASK,(received_can_frame.data[0]))
 	LED_blink();
+
+	switch(received_can_frame.data[0]){
+	case CAN_MEDIA_ALL_RELEASED :
+		app_timer_stop(m_hold_to_erase_bonds_timer);
+		break;
+	case CAN_MEDIA_MUTE :
+		app_timer_start(m_hold_to_erase_bonds_timer,HOLD_TO_ERASE_BONDS_DELAY,NULL);
+		break;
+	}
+	//if connected to phone start controlling media
 	if(ble_conn_state_status(m_conn_handle)==BLE_CONN_STATUS_CONNECTED){
 		switch(received_can_frame.data[0]){
 		case CAN_MEDIA_NEXT :
@@ -565,6 +608,9 @@ static void mcp2515_int_pin_handler(nrf_drv_gpiote_pin_t pin, nrf_gpiote_polarit
 			break;
 		case CAN_MEDIA_PREV :
 			hid_multimedia_send_key(MEDIA_PREV);
+			break;
+		case CAN_MEDIA_MUTE :
+			hid_multimedia_send_key(MEDIA_STOP);
 			break;
 		default:
 			break;
@@ -582,13 +628,18 @@ static void gpiote_init(void){
 	err_code = nrf_drv_gpiote_init();
 	APP_ERROR_CHECK(err_code);
 
+	nrf_drv_gpiote_in_config_t clear_bonds_and_reset_button_config = GPIOTE_CONFIG_IN_SENSE_LOTOHI(true);
+	clear_bonds_and_reset_button_config.pull = NRF_GPIO_PIN_PULLDOWN;
+
 	nrf_drv_gpiote_in_config_t mcp2515_int_pin_config = GPIOTE_CONFIG_IN_SENSE_HITOLO(true);
 	mcp2515_int_pin_config.pull = NRF_GPIO_PIN_PULLUP;
 
+	err_code = nrf_drv_gpiote_in_init(RESET_BONDS_BUTTON_PIN, &clear_bonds_and_reset_button_config, bonds_reset_button_int_handler);
 	err_code = nrf_drv_gpiote_in_init(MCP2515_INT_PIN, &mcp2515_int_pin_config, mcp2515_int_pin_handler);
 	APP_ERROR_CHECK(err_code);
 
 	nrf_drv_gpiote_in_event_enable(MCP2515_INT_PIN, true);
+	nrf_drv_gpiote_in_event_enable(RESET_BONDS_BUTTON_PIN, true);
 }
 /**@brief Function for the GAP initialization.
  *
@@ -1235,8 +1286,7 @@ static void power_manage(void)
  */
 int main(void)
 {
-    bool     erase_bonds=true;
-    // @TODO: set up some kind of user option to erase bonds and pair new device (push button/button combo etc)
+    bool     erase_bonds=false;
     // @TODO: figure out how to delete device from peer manager when pair is deleted on a phone/host (MCU thinks its connected so won't go to sleep, neither pair to new device - bonds erasing needed on MCU side)
     uint32_t err_code;
 

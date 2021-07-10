@@ -144,7 +144,7 @@
 
 #define MCP_16MHz_33k3BPS_CFG1 (0x4E)
 #define MCP_16MHz_33k3BPS_CFG2 (0xF1)
-#define MCP_16MHz_33k3BPS_CFG3 (0x85)
+#define MCP_16MHz_33k3BPS_CFG3 (0xC5)
 
 
 extern struct can_config can_cfg;
