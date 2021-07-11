@@ -99,7 +99,7 @@
 #define UART_TX_BUF_SIZE                 256                                        /**< UART TX buffer size. */
 #define UART_RX_BUF_SIZE                 1                                          /**< UART RX buffer size. */
 
-#define DEVICE_NAME                      "Volt multimedia"                          /**< Name of device. Will be included in the advertising data. */
+#define DEVICE_NAME                      "Multimedia"                      		    /**< Name of device. Will be included in the advertising data. */
 #define MANUFACTURER_NAME                "None"                   				    /**< Manufacturer. Will be passed to Device Information Service. */
 
 #define APP_TIMER_PRESCALER              0                                          /**< Value of the RTC1 PRESCALER register. */
@@ -164,8 +164,8 @@
 #define SCHED_QUEUE_SIZE                 10                                          /**< Maximum number of events in the scheduler queue. */
 #endif
 
-#define NRF_CLOCK_LFCLKSRC      {.source        = NRF_CLOCK_LF_SRC_XTAL,            \
-                                 .rc_ctiv       = 0,                                \
+#define NRF_CLOCK_LFCLKSRC      {.source        = NRF_CLOCK_LF_SRC_RC,            \
+                                 .rc_ctiv       = 8,                                \
                                  .rc_temp_ctiv  = 0,                                \
                                  .xtal_accuracy = NRF_CLOCK_LF_XTAL_ACCURACY_20_PPM}
 
@@ -1005,7 +1005,7 @@ static void on_ble_evt(ble_evt_t * p_ble_evt)
             m_conn_handle = p_ble_evt->evt.gap_evt.conn_handle;
             app_timer_stop(m_sleep_delay_timer_id);
             app_timer_stop(m_adv_blink);
-            app_timer_start(m_start_playing_timer_id,START_PLAYING_DELAY,NULL);
+            //app_timer_start(m_start_playing_timer_id,START_PLAYING_DELAY,NULL); //disabled because phone starts playing music everytime the phone is nearby and can bus gets active
             break; // BLE_GAP_EVT_CONNECTED
 
         case BLE_EVT_TX_COMPLETE:
