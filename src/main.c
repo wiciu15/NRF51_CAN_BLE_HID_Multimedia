@@ -567,6 +567,7 @@ static void timers_init(void)
     err_code = app_timer_create(&m_sleep_delay_timer_id,APP_TIMER_MODE_SINGLE_SHOT,sleep_delay_timer_timeout_handler);
     err_code = app_timer_create(&m_start_playing_timer_id,APP_TIMER_MODE_SINGLE_SHOT,start_playing_after_connect_timeout);
     nrf_gpio_cfg_output(ONBOARD_LED_PIN); //blink led output
+    nrf_gpio_pin_set(ONBOARD_LED_PIN);
     err_code = app_timer_create(&m_blink,APP_TIMER_MODE_SINGLE_SHOT,blink_led_on);
     err_code = app_timer_create(&m_adv_blink,APP_TIMER_MODE_REPEATED,blink_adv_toggle);
     err_code = app_timer_create(&m_hold_to_erase_bonds_timer,APP_TIMER_MODE_SINGLE_SHOT,hold_to_erase_bonds_handler);
