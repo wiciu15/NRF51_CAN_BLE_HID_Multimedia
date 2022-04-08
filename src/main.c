@@ -111,7 +111,7 @@
 #define START_PLAYING_DELAY				 APP_TIMER_TICKS(5000,APP_TIMER_PRESCALER)  /**< ms after BLE connect event, that play button report is sent */
 #define LED_BLINK_TIME					 APP_TIMER_TICKS(100,APP_TIMER_PRESCALER)	/**< lenght of activity led blink*/
 #define HOLD_TO_ERASE_BONDS_DELAY		 APP_TIMER_TICKS(3000,APP_TIMER_PRESCALER)	/**< how long is a key press needed to start bond erasing and pairing to new device */
-#define DEBOUNCE_DELAY				     APP_TIMER_TICKS(60,APP_TIMER_PRESCALER)
+#define DEBOUNCE_DELAY				     APP_TIMER_TICKS(200,APP_TIMER_PRESCALER)
 
 #define PNP_ID_VENDOR_ID_SOURCE          0x01                                       /**< Vendor ID Source. */
 #define PNP_ID_VENDOR_ID                 0xFFFF                                     /**< Vendor ID. */
